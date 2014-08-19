@@ -1,3 +1,4 @@
+
 /* -*- Mode:C++; c-file-style:"gnu"; indent-tabs-mode:nil; -*- */
 /**
  * Copyright (c) 2014,  Regents of the University of California,
@@ -29,6 +30,9 @@
 #include "ncc-strategy.hpp"
 #include "best-route-strategy2.hpp"
 
+#include "simple-load-balancer-strategy.hpp"
+
+
 namespace nfd {
 namespace fw {
 
@@ -56,6 +60,9 @@ installStrategies(Forwarder& forwarder)
   installStrategy<ClientControlStrategy>(forwarder);
   installStrategy<NccStrategy>(forwarder);
   installStrategy<BestRouteStrategy2>(forwarder);
+
+  installStrategy<SimpleLoadBalancerStrategy>(forwarder);
+  installStrategy<WeightedLoadBalancerStrategy>(forwarder);
 }
 
 } // namespace fw
