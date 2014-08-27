@@ -31,6 +31,7 @@
 #include "best-route-strategy2.hpp"
 
 #include "simple-load-balancer-strategy.hpp"
+#include "weighted-load-balancer-strategy.hpp"
 
 
 namespace nfd {
