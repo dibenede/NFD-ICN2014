@@ -26,8 +26,13 @@
 
 #include <ndn-cxx/util/random.hpp>
 
+#include <core/logger.hpp>
+
+NFD_LOG_INIT("SimpleLoadBalancerStrategy");
+
 namespace nfd {
 namespace fw {
+
 
 const Name SimpleLoadBalancerStrategy::STRATEGY_NAME("ndn:/localhost/nfd/strategy/simple-load-balancer");
 
@@ -74,7 +79,8 @@ SimpleLoadBalancerStrategy::afterReceiveInterest(const Face& inFace,
 
   do
     {
-      uint64_t randomIndex = ndn::random::generateWord64() % nexthops.size();
+      boost::random::uniform_int_distribution<> dist(0, nexthops.size() - 1);
+      const size_t randomIndex = dist(m_randomGenerator);
 
       it = nexthops.begin();
       uint64_t currentIndex = 0;
@@ -85,8 +91,7 @@ SimpleLoadBalancerStrategy::afterReceiveInterest(const Face& inFace,
         }
     } while (!canForwardToNextHop(pitEntry, *it));
 
-  shared_ptr<Face> outFace = it->getFace();
-  this->sendInterest(pitEntry, outFace);
+  this->sendInterest(pitEntry, it->getFace());
 }
 
 } // namespace fw

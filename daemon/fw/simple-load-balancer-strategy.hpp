@@ -25,15 +25,15 @@
 #ifndef NFD_DAEMON_FW_SIMPLE_LOAD_BALANCER_STRATEGY_HPP
 #define NFD_DAEMON_FW_SIMPLE_LOAD_BALANCER_STRATEGY_HPP
 
+#include <boost/random/mersenne_twister.hpp>
+#include <boost/random/uniform_int_distribution.hpp>
+
 #include "strategy.hpp"
 
 namespace nfd {
 namespace fw {
 
-/** \class SimpleLoadBalancerStrategy
- *  \brief a forwarding strategy that forwards Interest
- *         to the first nexthop
- */
+
 class SimpleLoadBalancerStrategy : public Strategy
 {
 public:
@@ -50,6 +50,9 @@ public:
 
 public:
   static const Name STRATEGY_NAME;
+
+protected:
+  boost::random::mt19937 m_randomGenerator;
 };
 
 } // namespace fw
