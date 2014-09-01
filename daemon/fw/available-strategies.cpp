@@ -30,7 +30,7 @@
 #include "ncc-strategy.hpp"
 #include "best-route-strategy2.hpp"
 
-#include "simple-load-balancer-strategy.hpp"
+#include "random-load-balancer-strategy.hpp"
 #include "weighted-load-balancer-strategy.hpp"
 
 
@@ -62,7 +62,7 @@ installStrategies(Forwarder& forwarder)
   installStrategy<NccStrategy>(forwarder);
   installStrategy<BestRouteStrategy2>(forwarder);
 
-  installStrategy<SimpleLoadBalancerStrategy>(forwarder);
+  installStrategy<RandomLoadBalancerStrategy>(forwarder);
   installStrategy<WeightedLoadBalancerStrategy>(forwarder);
 }
 

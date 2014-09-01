@@ -26,7 +26,6 @@
 #define NFD_DAEMON_FW_SIMPLE_LOAD_BALANCER_STRATEGY_HPP
 
 #include <boost/random/mersenne_twister.hpp>
-#include <boost/random/uniform_int_distribution.hpp>
 
 #include "strategy.hpp"
 
@@ -34,13 +33,13 @@ namespace nfd {
 namespace fw {
 
 
-class SimpleLoadBalancerStrategy : public Strategy
+class RandomLoadBalancerStrategy : public Strategy
 {
 public:
-  SimpleLoadBalancerStrategy(Forwarder& forwarder, const Name& name = STRATEGY_NAME);
+  RandomLoadBalancerStrategy(Forwarder& forwarder, const Name& name = STRATEGY_NAME);
 
   virtual
-  ~SimpleLoadBalancerStrategy();
+  ~RandomLoadBalancerStrategy();
 
   virtual void
   afterReceiveInterest(const Face& inFace,
@@ -58,4 +57,4 @@ protected:
 } // namespace fw
 } // namespace nfd
 
-#endif // NFD_DAEMON_FW_SIMPLE_LOAD_BALANCER_HPP
+#endif // NFD_DAEMON_FW_RANDOM_LOAD_BALANCER_HPP

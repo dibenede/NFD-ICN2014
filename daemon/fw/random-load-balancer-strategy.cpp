@@ -22,26 +22,28 @@
  * NFD, e.g., in COPYING.md file.  If not, see <http://www.gnu.org/licenses/>.
  **/
 
-#include "simple-load-balancer-strategy.hpp"
+#include "random-load-balancer-strategy.hpp"
+
+#include <boost/random/uniform_int_distribution.hpp>
 
 #include <ndn-cxx/util/random.hpp>
 
 #include <core/logger.hpp>
 
-NFD_LOG_INIT("SimpleLoadBalancerStrategy");
+NFD_LOG_INIT("RandomLoadBalancerStrategy");
 
 namespace nfd {
 namespace fw {
 
 
-const Name SimpleLoadBalancerStrategy::STRATEGY_NAME("ndn:/localhost/nfd/strategy/simple-load-balancer");
+const Name RandomLoadBalancerStrategy::STRATEGY_NAME("ndn:/localhost/nfd/strategy/random-load-balancer");
 
-SimpleLoadBalancerStrategy::SimpleLoadBalancerStrategy(Forwarder& forwarder, const Name& name)
+RandomLoadBalancerStrategy::RandomLoadBalancerStrategy(Forwarder& forwarder, const Name& name)
   : Strategy(forwarder, name)
 {
 }
 
-SimpleLoadBalancerStrategy::~SimpleLoadBalancerStrategy()
+RandomLoadBalancerStrategy::~RandomLoadBalancerStrategy()
 {
 }
 
@@ -53,7 +55,7 @@ canForwardToNextHop(shared_ptr<pit::Entry> pitEntry,
 }
 
 void
-SimpleLoadBalancerStrategy::afterReceiveInterest(const Face& inFace,
+RandomLoadBalancerStrategy::afterReceiveInterest(const Face& inFace,
                                                  const Interest& interest,
                                                  shared_ptr<fib::Entry> fibEntry,
                                                  shared_ptr<pit::Entry> pitEntry)
