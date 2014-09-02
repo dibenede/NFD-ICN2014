@@ -24,32 +24,154 @@
 
 #include <ndn-cxx/util/random.hpp>
 
+#include <boost/random/uniform_int_distribution.hpp>
+#include <boost/chrono/system_clocks.hpp>
+
 #include "weighted-load-balancer-strategy.hpp"
 #include "core/logger.hpp"
 #include "table/measurements-entry.hpp"
 
-
+using namespace ndn::time;
+using namespace boost::multi_index;
 
 namespace nfd {
 namespace fw {
 
-NFD_LOG_INIT("WeightedLoadBalancerStrategy");
+struct MyPitInfo : public StrategyInfo
+{
+  MyPitInfo()
+    : creationTime(system_clock::now())
+  {}
 
-int WeightedLoadBalancerStrategy::MeasurementsEntryInfo::ID = 0;
+  system_clock::TimePoint creationTime;
+};
+
+struct WeightedFace
+{
+WeightedFace(const Face& face_,
+               const milliseconds& delay = milliseconds(0))
+  : face(face_)
+  , lastDelay(delay)
+  {}
+
+  bool
+  operator<(const WeightedFace& other) const
+  {
+    if (lastDelay == other.lastDelay)
+      return face.getId() < other.face.getId();
+
+    return lastDelay < other.lastDelay;
+  }
+
+  FaceId
+  getId() const
+  {
+    return face.getId();
+  }
+
+  static void
+  modifyWeightedFaceDelay(WeightedFace& face,
+                          const ndn::time::milliseconds& delay)
+  {
+    face.lastDelay = delay;
+  }
+
+  const Face& face;
+  ndn::time::milliseconds lastDelay;
+};
+
+
+
+struct MyMeasurementInfo : public StrategyInfo
+{
+struct ByDelay {};
+struct ByFaceId {};
+
+typedef multi_index_container<
+  WeightedFace,
+  indexed_by<
+    ordered_unique<
+      tag<ByDelay>,
+      identity<WeightedFace>
+      >,
+    hashed_unique<
+      tag<ByFaceId>,
+      const_mem_fun<WeightedFace, FaceId, &WeightedFace::getId>
+      >
+    >
+  > WeightedFaceSet;
+
+  typedef WeightedFaceSet::index<ByDelay>::type WeightedFaceSetByDelay;
+  typedef WeightedFaceSet::index<ByFaceId>::type WeightedFaceSetByFaceId;
+
+  WeightedFaceSet weightedFaces;
+  ndn::time::milliseconds totalDelay;
+};
+
+NFD_LOG_INIT("WeightedLoadBalancerStrategy");
 
 const Name WeightedLoadBalancerStrategy::STRATEGY_NAME("ndn:/localhost/nfd/strategy/weighted-load-balancer");
 
 WeightedLoadBalancerStrategy::WeightedLoadBalancerStrategy(Forwarder& forwarder, const Name& name)
   : Strategy(forwarder, name)
 {
-
 }
 
 WeightedLoadBalancerStrategy::~WeightedLoadBalancerStrategy()
 {
 }
 
+static void
+updateStoredNextHops(shared_ptr<MyMeasurementInfo>& measurementsEntryInfo, const fib::NextHopList& nexthops)
+{
+  MyMeasurementInfo::WeightedFaceSetByFaceId& facesById =
+    measurementsEntryInfo->weightedFaces.get<MyMeasurementInfo::ByFaceId>();
 
+  std::set<FaceId> nexthopFaceIds;
+
+  for (fib::NextHopList::const_iterator i = nexthops.begin();
+       i != nexthops.end();
+       ++i)
+    {
+      const FaceId id = i->getFace()->getId();
+      if (facesById.find(id) == facesById.end())
+        {
+          // new nexthop, add to set
+          NFD_LOG_TRACE("adding FaceId: " << i->getFace()->getId() << " with delay 0");
+          facesById.insert(WeightedFace(*i->getFace()));
+        }
+      nexthopFaceIds.insert(id);
+    }
+
+  for (MyMeasurementInfo::WeightedFaceSetByFaceId::const_iterator i = facesById.begin();
+       i != facesById.end();
+       ++i)
+    {
+      if (nexthopFaceIds.find(i->getId()) == nexthopFaceIds.end())
+        {
+          NFD_LOG_TRACE("pruning FaceId: " << i->getId());
+          facesById.erase(i);
+        }
+    }
+}
+
+static milliseconds
+calculateInverseDelaySum(const shared_ptr<MyMeasurementInfo>& info)
+{
+  const MyMeasurementInfo::WeightedFaceSetByDelay& facesByDelay =
+    info->weightedFaces.get<MyMeasurementInfo::ByDelay>();
+
+  milliseconds inverseTotalDelay(0);
+
+  for (MyMeasurementInfo::WeightedFaceSetByDelay::const_iterator i = facesByDelay.begin();
+       i != facesByDelay.end();
+       ++i)
+    {
+      inverseTotalDelay += (info->totalDelay - i->lastDelay);
+    }
+
+  return inverseTotalDelay;
+}
 
 void
 WeightedLoadBalancerStrategy::afterReceiveInterest(const Face& inFace,
@@ -57,67 +179,29 @@ WeightedLoadBalancerStrategy::afterReceiveInterest(const Face& inFace,
                                                    shared_ptr<fib::Entry> fibEntry,
                                                    shared_ptr<pit::Entry> pitEntry)
 {
+  // not a new Interest, don't forward
   if (pitEntry->hasUnexpiredOutRecords())
-    {
-      // not a new Interest, don't forward
       return;
-    }
 
-  const fib::NextHopList& nexthops = fibEntry->getNextHops();
+  // create timer information and attach to PIT entry
+  pitEntry->setStrategyInfo<MyPitInfo>(make_shared<MyPitInfo>());
 
-  shared_ptr<MeasurementsEntryInfo> measurementsEntryInfo =
-    getOrCreateMeasurementsEntryInfo<fib::Entry>(fibEntry);
+  shared_ptr<MyMeasurementInfo> measurementsEntryInfo =
+    getOrCreateMyMeasurementInfo(fibEntry);
 
-  NFD_LOG_TRACE("afterReceive: Accessing Measurements Info ID: " << measurementsEntryInfo->id);
 
-  // begin set reconciliation
-  {
-    MeasurementsEntryInfo::WeightedFaceSetByFaceId& facesById =
-      measurementsEntryInfo->weightedFaces.get<MeasurementsEntryInfo::ByFaceId>();
+  // reconcile differences between incoming nexthops and those stored
+  // on our custom measurement entry info
+  updateStoredNextHops(measurementsEntryInfo, fibEntry->getNextHops());
 
-    std::set<FaceId> nexthopFaceIds;
-
-    for (fib::NextHopList::const_iterator i = nexthops.begin();
-         i != nexthops.end();
-         ++i)
-      {
-        const FaceId id = i->getFace()->getId();
-        if (facesById.find(id) == facesById.end())
-          {
-            // new nexthop, add to set
-            NFD_LOG_TRACE("adding FaceId: " << i->getFace()->getId() << " with delay 0");
-            facesById.insert(WeightedFace(*i->getFace()));
-          }
-        nexthopFaceIds.insert(id);
-      }
-
-    for (MeasurementsEntryInfo::WeightedFaceSetByFaceId::const_iterator i = facesById.begin();
-         i != facesById.end();
-         ++i)
-      {
-        if (nexthopFaceIds.find(i->getId()) == nexthopFaceIds.end())
-          {
-            NFD_LOG_TRACE("pruning FaceId: " << i->getId());
-            facesById.erase(i);
-          }
-      }
-
-  } //end set reconciliation
-
-  const MeasurementsEntryInfo::WeightedFaceSetByDelay& facesByDelay =
-    measurementsEntryInfo->weightedFaces.get<MeasurementsEntryInfo::ByDelay>();
+  const MyMeasurementInfo::WeightedFaceSetByDelay& facesByDelay =
+    measurementsEntryInfo->weightedFaces.get<MyMeasurementInfo::ByDelay>();
 
   NFD_LOG_TRACE(facesByDelay.size() << " Faces in weighted face set");
 
-  const ndn::time::nanoseconds totalDelay(measurementsEntryInfo->totalDelay);
-  ndn::time::nanoseconds inverseTotalDelay(0);
+  const milliseconds totalDelay = measurementsEntryInfo->totalDelay;
+  const milliseconds inverseTotalDelay = calculateInverseDelaySum(measurementsEntryInfo);
 
-  for (MeasurementsEntryInfo::WeightedFaceSetByDelay::const_iterator i = facesByDelay.begin();
-       i != facesByDelay.end();
-       ++i)
-    {
-      inverseTotalDelay += (totalDelay - i->lastDelay);
-    }
 
   boost::random::uniform_int_distribution<> dist(0, inverseTotalDelay.count());
   const uint64_t rnd = dist(m_randomGenerator);
@@ -126,7 +210,7 @@ WeightedLoadBalancerStrategy::afterReceiveInterest(const Face& inFace,
 
   NFD_LOG_TRACE("Generated rnd = " << rnd);
 
-  for (MeasurementsEntryInfo::WeightedFaceSetByDelay::const_iterator i = facesByDelay.begin();
+  for (MyMeasurementInfo::WeightedFaceSetByDelay::const_iterator i = facesByDelay.begin();
        i != facesByDelay.end();
        ++i)
     {
@@ -144,8 +228,8 @@ WeightedLoadBalancerStrategy::afterReceiveInterest(const Face& inFace,
         }
     }
 
-  NFD_LOG_WARN("rejecting Interest " << interest.getName());
   this->rejectPendingInterest(pitEntry);
+  BOOST_ASSERT(false);
 }
 
 
@@ -155,18 +239,20 @@ WeightedLoadBalancerStrategy::beforeSatisfyPendingInterest(shared_ptr<pit::Entry
                                                            const Face& inFace,
                                                            const Data& data)
 {
-  using namespace ndn::time;
+  shared_ptr<MyPitInfo> pitInfo =
+    pitEntry->getStrategyInfo<MyPitInfo>();
 
-  static const nanoseconds MEASUREMENTS_LIFETIME = time::seconds(16);
+  // No start time available, cannot compute delay for this retrieval
+  if (!static_cast<bool>(pitInfo))
+    return;
 
-  shared_ptr<PitEntryInfo> pitInfo =
-    pitEntry->getOrCreateStrategyInfo<PitEntryInfo>();
 
-  const nanoseconds delay = SystemClock::now() - pitInfo->creationTime;
+  const milliseconds delay =
+    duration_cast<milliseconds>(system_clock::now() - pitInfo->creationTime);
 
-  // NFD_LOG_TRACE("PIT Info created at " << pitInfo->creationTime
-  //               << " Now: " << SystemClock::now()
-  //               << " delay: " << delay.count() << "ns");
+  NFD_LOG_TRACE("PIT Info created at " << pitInfo->creationTime
+                << " Now: " << system_clock::now()
+                << " delay: " << delay.count() << "ms");
 
   for (shared_ptr<measurements::Entry> measurementsEntry =
          this->getMeasurements().get(*pitEntry);
@@ -176,21 +262,18 @@ WeightedLoadBalancerStrategy::beforeSatisfyPendingInterest(shared_ptr<pit::Entry
       NFD_LOG_TRACE("beforeSatisfy: Accessing Measurement Entry for Name: "
                     << measurementsEntry->getName());
 
-      this->getMeasurements().extendLifetime(measurementsEntry, MEASUREMENTS_LIFETIME);
+      this->getMeasurements().extendLifetime(measurementsEntry, seconds(16));
 
-      shared_ptr<MeasurementsEntryInfo> measurementsEntryInfo =
-        measurementsEntry->getStrategyInfo<MeasurementsEntryInfo>();
+      shared_ptr<MyMeasurementInfo> measurementsEntryInfo =
+        measurementsEntry->getStrategyInfo<MyMeasurementInfo>();
 
       if (!static_cast<bool>(measurementsEntryInfo))
           continue;
 
-      NFD_LOG_TRACE("beforeStatisfy: Accessing Measurements Info ID: "
-                    << measurementsEntryInfo->id);
+      MyMeasurementInfo::WeightedFaceSetByFaceId& facesById =
+        measurementsEntryInfo->weightedFaces.get<MyMeasurementInfo::ByFaceId>();
 
-      MeasurementsEntryInfo::WeightedFaceSetByFaceId& facesById =
-        measurementsEntryInfo->weightedFaces.get<MeasurementsEntryInfo::ByFaceId>();
-
-      MeasurementsEntryInfo::WeightedFaceSetByFaceId::iterator faceEntry =
+      MyMeasurementInfo::WeightedFaceSetByFaceId::iterator faceEntry =
         facesById.find(inFace.getId());
 
       NFD_LOG_TRACE("Received " << data.getName() << " from FaceId: " << inFace.getId());
@@ -200,8 +283,8 @@ WeightedLoadBalancerStrategy::beforeSatisfyPendingInterest(shared_ptr<pit::Entry
           measurementsEntryInfo->totalDelay += (delay - faceEntry->lastDelay);
 
           NFD_LOG_TRACE("Recording delay of " << delay.count()
-                        << "ns (diff: " << (delay-faceEntry->lastDelay).count()
-                        << "ns) for FaceId: " << inFace.getId());
+                        << "ms (diff: " << (delay-faceEntry->lastDelay).count()
+                        << "ms) for FaceId: " << inFace.getId());
 
 
           facesById.modify(faceEntry,
@@ -210,10 +293,30 @@ WeightedLoadBalancerStrategy::beforeSatisfyPendingInterest(shared_ptr<pit::Entry
         }
       else
         {
-          NFD_LOG_WARN("FaceId: " << inFace.getId() << " not in weighted face set");
+          NFD_LOG_TRACE("FaceId: " << inFace.getId() << " no longer in weighted face set");
         }
     }
 
+}
+
+shared_ptr<MyMeasurementInfo>
+WeightedLoadBalancerStrategy::getOrCreateMyMeasurementInfo(const shared_ptr<fib::Entry>& entry)
+{
+  BOOST_ASSERT(static_cast<bool>(entry));
+
+  shared_ptr<measurements::Entry> measurementsEntry =
+    this->getMeasurements().get(*entry);
+
+  shared_ptr<MyMeasurementInfo> measurementsEntryInfo =
+    measurementsEntry->getStrategyInfo<MyMeasurementInfo>();
+
+  if (!static_cast<bool>(measurementsEntryInfo))
+    {
+      measurementsEntryInfo = make_shared<MyMeasurementInfo>();
+      measurementsEntry->setStrategyInfo(measurementsEntryInfo);
+    }
+
+  return measurementsEntryInfo;
 }
 
 } // namespace fw

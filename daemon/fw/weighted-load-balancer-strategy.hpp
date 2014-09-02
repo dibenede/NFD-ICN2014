@@ -32,7 +32,6 @@
 #include <boost/multi_index/mem_fun.hpp>
 
 #include <boost/random/mersenne_twister.hpp>
-#include <boost/random/uniform_int_distribution.hpp>
 
 #include <ndn-cxx/util/time.hpp>
 
@@ -41,10 +40,8 @@
 namespace nfd {
 namespace fw {
 
-/** \class WeightedLoadBalancerStrategy
- *  \brief a forwarding strategy that forwards Interest
- *         to the first nexthop
- */
+struct MyMeasurementInfo;
+
 class WeightedLoadBalancerStrategy : public Strategy
 {
 public:
@@ -66,132 +63,17 @@ public:
                                const Data& data);
 
 
+protected:
+
+  shared_ptr<MyMeasurementInfo>
+  getOrCreateMyMeasurementInfo(const shared_ptr<fib::Entry>& entry);
+
+
 public:
   static const Name STRATEGY_NAME;
 
-
-
 protected:
-
-  typedef ndn::time::system_clock SystemClock;
-  typedef SystemClock::TimePoint TimePoint;
-
   boost::random::mt19937 m_randomGenerator;
-
-protected:
-
-  struct PitEntryInfo : public StrategyInfo
-  {
-    PitEntryInfo()
-      : creationTime(SystemClock::now())
-    {}
-
-    TimePoint creationTime;
-  };
-
-protected:
-
-  struct WeightedFace
-  {
-    WeightedFace(const Face& face_,
-                 const ndn::time::nanoseconds& delay = ndn::time::nanoseconds(0))
-      : face(face_)
-      , lastDelay(delay)
-    {}
-
-    bool
-    operator<(const WeightedFace& other) const
-    {
-      if (lastDelay == other.lastDelay)
-        return face.getId() < other.face.getId();
-
-      return lastDelay < other.lastDelay;
-    }
-
-    FaceId
-    getId() const
-    {
-      return face.getId();
-    }
-
-    static void
-    modifyWeightedFaceDelay(WeightedFace& face,
-                            const ndn::time::nanoseconds& delay)
-    {
-      face.lastDelay = delay;
-    }
-
-    const Face& face;
-    ndn::time::nanoseconds lastDelay;
-  };
-
-protected:
-
-  struct MeasurementsEntryInfo : public StrategyInfo
-  {
-    MeasurementsEntryInfo()
-      : id(ID++)
-    {}
-
-    struct ByDelay {};
-    struct ByFaceId {};
-
-    // using boost::multi_index::multi_index_container;
-    // using boost::multi_index::indexed_by;
-    // using boost::multi_index::ordered_unique;
-    // using boost::multi_index::hashed_unique;
-    // using boost::multi_index::tag;
-    // using boost::multi_index::const_mem_fun;
-
-    typedef boost::multi_index::multi_index_container<
-      WeightedFace,
-      boost::multi_index::indexed_by<
-        boost::multi_index::ordered_unique<
-          boost::multi_index::tag<ByDelay>,
-          boost::multi_index::identity<WeightedFace>
-          >,
-        boost::multi_index::hashed_unique<
-          boost::multi_index::tag<ByFaceId>,
-          boost::multi_index::const_mem_fun<WeightedFace, FaceId, &WeightedFace::getId>
-          >
-        >
-      > WeightedFaceSet;
-
-    typedef WeightedFaceSet::index<ByDelay>::type WeightedFaceSetByDelay;
-    typedef WeightedFaceSet::index<ByFaceId>::type WeightedFaceSetByFaceId;
-
-    WeightedFaceSet weightedFaces;
-    ndn::time::nanoseconds totalDelay;
-    int id;
-
-    static int ID;
-  };
-
-protected:
-
-  template<typename E>
-  shared_ptr<MeasurementsEntryInfo>
-  getOrCreateMeasurementsEntryInfo(const shared_ptr<E>& entry)
-  {
-    BOOST_ASSERT(static_cast<bool>(entry));
-
-    // std::cerr << "Accessing Measurements for " << entry->getPrefix() << "\n";
-
-    shared_ptr<measurements::Entry> measurementsEntry =
-      this->getMeasurements().get(*entry);
-
-    shared_ptr<MeasurementsEntryInfo> measurementsEntryInfo =
-      measurementsEntry->getStrategyInfo<MeasurementsEntryInfo>();
-
-    if (!static_cast<bool>(measurementsEntryInfo))
-      {
-        measurementsEntryInfo = make_shared<MeasurementsEntryInfo>();
-        measurementsEntry->setStrategyInfo(measurementsEntryInfo);
-      }
-
-    return measurementsEntryInfo;
-  }
-
 };
 
 } // namespace fw
