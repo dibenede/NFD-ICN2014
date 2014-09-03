@@ -1,3 +1,4 @@
+#!/usr/bin/python
 # -*- Mode:python; c-file-style:"gnu"; indent-tabs-mode:nil -*- */
 #
 # Copyright (c) 2013-2014 Regents of the University of California.
@@ -37,7 +38,7 @@ from pyndn import Face
 class Consumer(object):
     '''Hello World (extended) consumer'''
 
-    def __init__(self, prefix,  pipeline):
+    def __init__(self, prefix, pipeline):
         self.prefix = prefix
         self.pipeline = pipeline
         self.nextSegment = 0
@@ -50,7 +51,7 @@ class Consumer(object):
 
     def run(self):
         try:
-            for i in range(self.pipeline):
+            while self.nextSegment < self.pipeline:
                 self._sendNextInterest(self.prefix)
                 self.nextSegment += 1
 
@@ -76,8 +77,8 @@ class Consumer(object):
            finalBlockId.toNumber() == dataName[-1].toNumber():
             self.isDone = True
         else:
-           self._sendNextInterest(self.prefix)
-           self.nextSegment += 1
+            self._sendNextInterest(self.prefix)
+            self.nextSegment += 1
 
 
     def _sendNextInterest(self, name):

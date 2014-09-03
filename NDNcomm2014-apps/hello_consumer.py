@@ -22,7 +22,6 @@
 # @author Wentao Shang <http://irl.cs.ucla.edu/~wentao/>
 # @author Steve DiBenedetto <http://www.cs.colostate.edu/~dibenede>
 # @author Susmit Shannigrahi <http://www.cs.colostate.edu/~susmit>
-#/
 
 import sys
 import time
@@ -32,8 +31,7 @@ import traceback
 from pyndn import Interest
 from pyndn import Name
 from pyndn import Face
-from pyndn.encoding.tlv.tlv_encoder import TlvEncoder
-from pyndn.util.blob import Blob
+
 
 
 class Consumer(object):

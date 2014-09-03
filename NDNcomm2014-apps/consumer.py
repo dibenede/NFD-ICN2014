@@ -22,7 +22,7 @@
 # @author Wentao Shang <http://irl.cs.ucla.edu/~wentao/>
 # @author Steve DiBenedetto <http://www.cs.colostate.edu/~dibenede>
 # @author Susmit Shannigrahi <http://www.cs.colostate.edu/~susmit>
-
+# pylint: disable=line-too-long
 
 import sys
 import time
@@ -32,25 +32,24 @@ import traceback
 from pyndn import Interest
 from pyndn import Name
 from pyndn import Face
-from pyndn.encoding.tlv.tlv_encoder import TlvEncoder
-from pyndn.util.blob import Blob
 
 
 class Consumer(object):
     '''Sends Interest, listens for data'''
 
-    def __init__(self, prefix,  pipeline, count):
+    def __init__(self, prefix, pipeline, count):
         self.prefix = prefix
         self.pipeline = pipeline
         self.count = count
         self.nextSegment = 0
-        self.face = Face("127.0.0.1")
         self.outstanding = dict()
         self.isDone = False
 
+        self.face = Face("127.0.0.1")
+
     def run(self):
         try:
-            for i in range(self.pipeline):
+            while self.nextSegment < self.pipeline:
                 self._sendNextInterest(self.prefix)
                 self.nextSegment += 1
 
@@ -59,7 +58,7 @@ class Consumer(object):
                 time.sleep(0.01)
 
         except RuntimeError as e:
-            print "ERROR: %s" %  e
+            print "ERROR: %s" % e
 
 
 
@@ -73,8 +72,8 @@ class Consumer(object):
         if self.count == self.nextSegment or data.getMetaInfo().getFinalBlockID() == data.getName()[-1]:
             self.isDone = True
         else:
-           self._sendNextInterest(self.prefix)
-           self.nextSegment += 1
+            self._sendNextInterest(self.prefix)
+            self.nextSegment += 1
 
 
     def _sendNextInterest(self, name):
@@ -116,12 +115,12 @@ if __name__ == "__main__":
     parser.add_argument("-p", "--pipe",required=False, help='number of Interests to pipeline, default = 1', nargs= '?', const=1, type=int, default=1)
     parser.add_argument("-c", "--count", required=False, help='number of (unique) Interests to send before exiting, default = repeat until final block', nargs='?', const=1,  type=int, default=None)
 
-    args = parser.parse_args()
+    arguments = parser.parse_args()
 
     try:
-        uri = args.uri
-        pipeline = args.pipe
-        count = args.count
+        uri = arguments.uri
+        pipeline = arguments.pipe
+        count = arguments.count
 
         if count is not None and count < pipeline:
             print "Number of Interests to send must be >= pipeline size"
