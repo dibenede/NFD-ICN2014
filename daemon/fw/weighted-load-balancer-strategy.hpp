@@ -27,22 +27,14 @@
 #ifndef NFD_DAEMON_FW_WEIGHTED_LOAD_BALANCER_STRATEGY_HPP
 #define NFD_DAEMON_FW_WEIGHTED_LOAD_BALANCER_STRATEGY_HPP
 
-#include <boost/multi_index_container.hpp>
-#include <boost/multi_index/ordered_index.hpp>
-#include <boost/multi_index/hashed_index.hpp>
-#include <boost/multi_index/identity.hpp>
-#include <boost/multi_index/mem_fun.hpp>
-
 #include <boost/random/mersenne_twister.hpp>
-
-#include <ndn-cxx/util/time.hpp>
 
 #include "strategy.hpp"
 
 namespace nfd {
 namespace fw {
 
-struct MyMeasurementInfo;
+class MyMeasurementInfo;
 
 class WeightedLoadBalancerStrategy : public Strategy
 {
@@ -66,6 +58,11 @@ public:
 
 
 protected:
+
+  bool
+  sendOutInterest(const Interest& interest,
+                  shared_ptr<MyMeasurementInfo>& measurementsEntryInfo,
+                  shared_ptr<pit::Entry>& pitEntry);
 
   shared_ptr<MyMeasurementInfo>
   getOrCreateMyMeasurementInfo(const shared_ptr<fib::Entry>& entry);
