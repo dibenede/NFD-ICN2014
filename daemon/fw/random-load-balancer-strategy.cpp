@@ -89,8 +89,7 @@ RandomLoadBalancerStrategy::afterReceiveInterest(const Face& inFace,
 
       for (; it != nexthops.end() && currentIndex != randomIndex;
            ++it, ++currentIndex)
-        {
-        }
+        { }
     } while (!canForwardToNextHop(pitEntry, *it));
 
   this->sendInterest(pitEntry, it->getFace());

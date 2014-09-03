@@ -22,8 +22,6 @@
  * NFD, e.g., in COPYING.md file.  If not, see <http://www.gnu.org/licenses/>.
  **/
 
-#include <ndn-cxx/util/random.hpp>
-
 #include <boost/random/uniform_int_distribution.hpp>
 #include <boost/chrono/system_clocks.hpp>
 
@@ -112,7 +110,8 @@ NFD_LOG_INIT("WeightedLoadBalancerStrategy");
 
 const Name WeightedLoadBalancerStrategy::STRATEGY_NAME("ndn:/localhost/nfd/strategy/weighted-load-balancer");
 
-WeightedLoadBalancerStrategy::WeightedLoadBalancerStrategy(Forwarder& forwarder, const Name& name)
+WeightedLoadBalancerStrategy::WeightedLoadBalancerStrategy(Forwarder& forwarder,
+                                                           const Name& name)
   : Strategy(forwarder, name)
 {
 }
@@ -122,10 +121,13 @@ WeightedLoadBalancerStrategy::~WeightedLoadBalancerStrategy()
 }
 
 static void
-updateStoredNextHops(shared_ptr<MyMeasurementInfo>& measurementsEntryInfo, const fib::NextHopList& nexthops)
+updateStoredNextHops(shared_ptr<MyMeasurementInfo>& info,
+                     const fib::NextHopList& nexthops)
 {
-  MyMeasurementInfo::WeightedFaceSetByFaceId& facesById =
-    measurementsEntryInfo->weightedFaces.get<MyMeasurementInfo::ByFaceId>();
+  typedef MyMeasurementInfo::WeightedFaceSetByFaceId WeightedFaceSetByFaceId;
+
+  WeightedFaceSetByFaceId& facesById =
+    info->weightedFaces.get<MyMeasurementInfo::ByFaceId>();
 
   std::set<FaceId> nexthopFaceIds;
 
@@ -137,13 +139,14 @@ updateStoredNextHops(shared_ptr<MyMeasurementInfo>& measurementsEntryInfo, const
       if (facesById.find(id) == facesById.end())
         {
           // new nexthop, add to set
-          NFD_LOG_TRACE("adding FaceId: " << i->getFace()->getId() << " with delay 0");
           facesById.insert(WeightedFace(*i->getFace()));
+
+          NFD_LOG_TRACE("added FaceId: " << id);
         }
       nexthopFaceIds.insert(id);
     }
 
-  for (MyMeasurementInfo::WeightedFaceSetByFaceId::const_iterator i = facesById.begin();
+  for (WeightedFaceSetByFaceId::const_iterator i = facesById.begin();
        i != facesById.end();
        ++i)
     {
@@ -179,6 +182,8 @@ WeightedLoadBalancerStrategy::afterReceiveInterest(const Face& inFace,
                                                    shared_ptr<fib::Entry> fibEntry,
                                                    shared_ptr<pit::Entry> pitEntry)
 {
+  typedef MyMeasurementInfo::WeightedFaceSetByDelay WeightedFaceSetByDelay;
+
   // not a new Interest, don't forward
   if (pitEntry->hasUnexpiredOutRecords())
       return;
@@ -194,7 +199,7 @@ WeightedLoadBalancerStrategy::afterReceiveInterest(const Face& inFace,
   // on our custom measurement entry info
   updateStoredNextHops(measurementsEntryInfo, fibEntry->getNextHops());
 
-  const MyMeasurementInfo::WeightedFaceSetByDelay& facesByDelay =
+  const WeightedFaceSetByDelay& facesByDelay =
     measurementsEntryInfo->weightedFaces.get<MyMeasurementInfo::ByDelay>();
 
   NFD_LOG_TRACE(facesByDelay.size() << " Faces in weighted face set");
@@ -210,10 +215,11 @@ WeightedLoadBalancerStrategy::afterReceiveInterest(const Face& inFace,
 
   NFD_LOG_TRACE("Generated rnd = " << rnd);
 
-  for (MyMeasurementInfo::WeightedFaceSetByDelay::const_iterator i = facesByDelay.begin();
+  for (WeightedFaceSetByDelay::const_iterator i = facesByDelay.begin();
        i != facesByDelay.end();
        ++i)
     {
+      // weight = inverted delay measurement
       const uint64_t weight = totalDelay.count() - i->lastDelay.count();
       cumulativeWeight += weight;
 
@@ -223,6 +229,7 @@ WeightedLoadBalancerStrategy::afterReceiveInterest(const Face& inFace,
         {
           NFD_LOG_TRACE("Forwarding " << interest.getName()
                         << " out FaceId " << i->face.getId());
+
           this->sendInterest(pitEntry, this->getFace(i->face.getId()));
           return;
         }
@@ -239,8 +246,11 @@ WeightedLoadBalancerStrategy::beforeSatisfyPendingInterest(shared_ptr<pit::Entry
                                                            const Face& inFace,
                                                            const Data& data)
 {
-  shared_ptr<MyPitInfo> pitInfo =
-    pitEntry->getStrategyInfo<MyPitInfo>();
+  typedef MyMeasurementInfo::WeightedFaceSetByFaceId WeightedFaceSetByFaceId;
+
+  NFD_LOG_TRACE("Received " << data.getName() << " from FaceId: " << inFace.getId());
+
+  shared_ptr<MyPitInfo> pitInfo = pitEntry->getStrategyInfo<MyPitInfo>();
 
   // No start time available, cannot compute delay for this retrieval
   if (!static_cast<bool>(pitInfo))
@@ -254,6 +264,9 @@ WeightedLoadBalancerStrategy::beforeSatisfyPendingInterest(shared_ptr<pit::Entry
                 << " Now: " << system_clock::now()
                 << " delay: " << delay.count() << "ms");
 
+
+  // traverse nametree from our more specific PIT entry name
+  // through the root (/) FIB prefix.
   for (shared_ptr<measurements::Entry> measurementsEntry =
          this->getMeasurements().get(*pitEntry);
        static_cast<bool>(measurementsEntry);
@@ -262,21 +275,18 @@ WeightedLoadBalancerStrategy::beforeSatisfyPendingInterest(shared_ptr<pit::Entry
       NFD_LOG_TRACE("beforeSatisfy: Accessing Measurement Entry for Name: "
                     << measurementsEntry->getName());
 
-      this->getMeasurements().extendLifetime(measurementsEntry, seconds(16));
-
       shared_ptr<MyMeasurementInfo> measurementsEntryInfo =
         measurementsEntry->getStrategyInfo<MyMeasurementInfo>();
 
       if (!static_cast<bool>(measurementsEntryInfo))
           continue;
 
-      MyMeasurementInfo::WeightedFaceSetByFaceId& facesById =
+      this->getMeasurements().extendLifetime(measurementsEntry, seconds(16));
+
+      WeightedFaceSetByFaceId& facesById =
         measurementsEntryInfo->weightedFaces.get<MyMeasurementInfo::ByFaceId>();
 
-      MyMeasurementInfo::WeightedFaceSetByFaceId::iterator faceEntry =
-        facesById.find(inFace.getId());
-
-      NFD_LOG_TRACE("Received " << data.getName() << " from FaceId: " << inFace.getId());
+      WeightedFaceSetByFaceId::iterator faceEntry = facesById.find(inFace.getId());
 
       if (faceEntry != facesById.end())
         {
@@ -285,7 +295,6 @@ WeightedLoadBalancerStrategy::beforeSatisfyPendingInterest(shared_ptr<pit::Entry
           NFD_LOG_TRACE("Recording delay of " << delay.count()
                         << "ms (diff: " << (delay-faceEntry->lastDelay).count()
                         << "ms) for FaceId: " << inFace.getId());
-
 
           facesById.modify(faceEntry,
                            bind(&WeightedFace::modifyWeightedFaceDelay,
@@ -296,7 +305,6 @@ WeightedLoadBalancerStrategy::beforeSatisfyPendingInterest(shared_ptr<pit::Entry
           NFD_LOG_TRACE("FaceId: " << inFace.getId() << " no longer in weighted face set");
         }
     }
-
 }
 
 shared_ptr<MyMeasurementInfo>
