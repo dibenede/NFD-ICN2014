@@ -49,11 +49,19 @@ RandomLoadBalancerStrategy::~RandomLoadBalancerStrategy()
 {
 }
 
-static inline bool
+static bool
 canForwardToNextHop(shared_ptr<pit::Entry> pitEntry,
                     const fib::NextHop& nexthop)
 {
   return pitEntry->canForwardTo(*nexthop.getFace());
+}
+
+static bool
+hasFaceForForwarding(const fib::NextHopList& nexthops,
+                     shared_ptr<pit::Entry>& pitEntry)
+{
+  return std::find_if(nexthops.begin(), nexthops.end(),
+                      bind(&canForwardToNextHop, pitEntry, _1)) != nexthops.end();
 }
 
 void
@@ -70,31 +78,28 @@ RandomLoadBalancerStrategy::afterReceiveInterest(const Face& inFace,
 
   const fib::NextHopList& nexthops = fibEntry->getNextHops();
 
-  fib::NextHopList::const_iterator it = std::find_if(nexthops.begin(), nexthops.end(),
-    bind(&canForwardToNextHop, pitEntry, _1));
-
-  if (it == nexthops.end())
+  // Ensure there is at least 1 Face is available for forwarding
+  if (!hasFaceForForwarding(nexthops, pitEntry))
     {
       this->rejectPendingInterest(pitEntry);
       return;
     }
 
-  // There is at least 1 face we can use to forward this Interest
-
+  fib::NextHopList::const_iterator selected;
   do
     {
       boost::random::uniform_int_distribution<> dist(0, nexthops.size() - 1);
       const size_t randomIndex = dist(m_randomGenerator);
 
-      it = nexthops.begin();
       uint64_t currentIndex = 0;
 
-      for (; it != nexthops.end() && currentIndex != randomIndex;
-           ++it, ++currentIndex)
+      for (selected = nexthops.begin();
+           selected != nexthops.end() && currentIndex != randomIndex;
+           ++selected, ++currentIndex)
         { }
-    } while (!canForwardToNextHop(pitEntry, *it));
+    } while (!canForwardToNextHop(pitEntry, *selected));
 
-  this->sendInterest(pitEntry, it->getFace());
+  this->sendInterest(pitEntry, selected->getFace());
 }
 
 } // namespace fw
