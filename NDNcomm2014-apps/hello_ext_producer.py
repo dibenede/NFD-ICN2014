@@ -40,7 +40,7 @@ class Producer(object):
     def __init__(self, prefix, maxCount=1):
         self.keyChain = KeyChain()
         self.prefix = Name(prefix)
-        self.data = [None] * maxCount
+        self.data = []
 
         finalBlock = Name.Component.fromNumber(maxCount - 1)
         hourMilliseconds = 3600 * 1000
@@ -59,7 +59,7 @@ class Producer(object):
 
             self.keyChain.sign(data, self.keyChain.getDefaultCertificateName())
 
-            self.data[i] = data
+            self.data.append(data)
 
 
 
@@ -86,7 +86,7 @@ class Producer(object):
         interestName = interest.getName()
         sequence = interestName[-1].toNumber()
 
-        if 0 <= sequence and sequence <= len(self.data):
+        if 0 <= sequence and sequence < len(self.data):
             transport.send(self.data[sequence].wireEncode().toBuffer())
 
         print "Replied to: %s" % interestName.toUri()
@@ -104,7 +104,7 @@ class Producer(object):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Parse command line args for ndn consumer')
     parser.add_argument("-n", "--namespace", required=True, help='namespace to listen under')
-    parser.add_argument("-c", "--count", required=False, help='number of Data packets to generate, default = 1', nargs='?', const=1,  type=int, default=None)
+    parser.add_argument("-c", "--count", required=False, help='number of Data packets to generate, default = 1', nargs='?', const=1,  type=int, default=1)
 
     args = parser.parse_args()
 

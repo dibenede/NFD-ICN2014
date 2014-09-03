@@ -41,9 +41,11 @@ class Consumer(object):
         self.prefix = prefix
         self.pipeline = pipeline
         self.nextSegment = 0
-        self.face = Face("127.0.0.1")
         self.outstanding = dict()
         self.isDone = False
+
+        self.face = Face("127.0.0.1")
+
 
 
     def run(self):
@@ -79,7 +81,8 @@ class Consumer(object):
 
 
     def _sendNextInterest(self, name):
-        self._sendNextInterestWithSegment(Name(name).appendSegment(self.nextSegment))
+        nameWithSegment = Name(name).appendSegment(self.nextSegment)
+        self._sendNextInterestWithSegment(nameWithSegment)
 
 
     def _sendNextInterestWithSegment(self, name):

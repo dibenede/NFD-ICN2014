@@ -41,9 +41,11 @@ class Consumer(object):
 
     def __init__(self, prefix):
         self.prefix = prefix
-        self.face = Face("127.0.0.1")
         self.outstanding = dict()
         self.isDone = False
+
+        self.face = Face("127.0.0.1")
+
 
     def run(self):
         try:

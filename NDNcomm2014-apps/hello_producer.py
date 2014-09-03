@@ -37,7 +37,7 @@ from pyndn.security import KeyChain
 
 class Producer(object):
 
-    def __init__(self, delay=None):
+    def __init__(self):
         self.keyChain = KeyChain()
 
 
@@ -71,7 +71,7 @@ class Producer(object):
 
         transport.send(data.wireEncode().toBuffer())
 
-        print "Replied to: %s" interestName.toUri()
+        print "Replied to: %s" % interestName.toUri()
 
 
     def onRegisterFailed(self, prefix):
@@ -90,7 +90,7 @@ if __name__ == '__main__':
 
     try:
         namespace = args.namespace
-        Producer(delay).run(namespace)
+        Producer().run(namespace)
 
     except:
         traceback.print_exc(file=sys.stdout)
