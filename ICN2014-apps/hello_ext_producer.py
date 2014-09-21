@@ -37,25 +37,49 @@ from pyndn.security import KeyChain
 
 class Producer(object):
 
-    def __init__(self):
+    def __init__(self, prefix, maxCount=1):
         self.keyChain = KeyChain()
+        self.prefix = Name(prefix)
+        self.isDone = False
+
+        # Initialize list for Data packet storage.
+        # We'll treat the indices as equivalent to the sequence
+        # number requested by Interests.
+        self.data = []
+
+        finalBlock = Name.Component.fromNumberWithMarker(maxCount - 1, 0x00)
+        hourMilliseconds = 3600 * 1000
+
+        # Pre-generate and sign all of Data we can serve.
+        # We can also set the FinalBlockID in each packet
+        # ahead of time because we know the entire sequence.
+
+        for i in range(maxCount):
+            dataName = Name(prefix).appendSegment(i)
+
+            data = Data(dataName)
+            data.setContent("Hello, " + dataName.toUri())
+            data.getMetaInfo().setFinalBlockID(finalBlock)
+            data.getMetaInfo().setFreshnessPeriod(hourMilliseconds)
+
+            self.keyChain.sign(data, self.keyChain.getDefaultCertificateName())
+
+            self.data.append(data)
 
 
-    def run(self, namespace):
 
-        # The default Face will connect using a Unix socket
+    def run(self):
         face = Face()
-        prefix = Name(namespace)
 
         # Use the system default key chain and certificate name to sign commands.
         face.setCommandSigningInfo(self.keyChain, self.keyChain.getDefaultCertificateName())
 
         # Also use the default certificate name to sign data packets.
-        face.registerPrefix(prefix, self.onInterest, self.onRegisterFailed)
+        face.registerPrefix(self.prefix, self.onInterest, self.onRegisterFailed)
 
-        print "Registering prefix", prefix.toUri()
+        print "Registering prefix %s" % self.prefix.toUri()
 
-        while True:
+        while not self.isDone:
             face.processEvents()
             time.sleep(0.01)
 
@@ -63,19 +87,17 @@ class Producer(object):
 
     def onInterest(self, prefix, interest, transport, registeredPrefixId):
         interestName = interest.getName()
+        sequence = interestName[-1].toNumber()
 
-        data = Data(interestName)
-        data.setContent("Hello, " + interestName.toUri())
-
-        self.keyChain.sign(data, self.keyChain.getDefaultCertificateName())
-
-        transport.send(data.wireEncode().toBuffer())
+        if 0 <= sequence and sequence < len(self.data):
+            transport.send(self.data[sequence].wireEncode().toBuffer())
 
         print "Replied to: %s" % interestName.toUri()
 
 
     def onRegisterFailed(self, prefix):
         print "Register failed for prefix", prefix.toUri()
+        self.isDone = True
 
 
 
@@ -85,12 +107,15 @@ class Producer(object):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Parse command line args for ndn consumer')
     parser.add_argument("-n", "--namespace", required=True, help='namespace to listen under')
+    parser.add_argument("-c", "--count", required=False, help='number of Data packets to generate, default = 1', nargs='?', const=1,  type=int, default=1)
 
     args = parser.parse_args()
 
     try:
         namespace = args.namespace
-        Producer().run(namespace)
+        maxCount = args.count
+
+        Producer(namespace, maxCount).run()
 
     except:
         traceback.print_exc(file=sys.stdout)

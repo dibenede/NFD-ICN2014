@@ -36,47 +36,29 @@ from pyndn.security import KeyChain
 
 
 class Producer(object):
-
-    def __init__(self, prefix, maxCount=1):
+    def __init__(self):
         self.keyChain = KeyChain()
-        self.prefix = Name(prefix)
-        self.data = []
-
-        finalBlock = Name.Component.fromNumber(maxCount - 1)
-        hourMilliseconds = 3600 * 1000
-
-        # Pre-generate and sign all of Data we can serve.
-        # We can also set the FinalBlockID in each packet
-        # ahead of time because we know the entire sequence.
-
-        for i in range(maxCount):
-            dataName = Name(prefix).appendSegment(i)
-
-            data = Data(dataName)
-            data.setContent("Hello, " + dataName.toUri())
-            data.getMetaInfo().setFinalBlockID(finalBlock)
-            data.getMetaInfo().setFreshnessPeriod(hourMilliseconds)
-
-            self.keyChain.sign(data, self.keyChain.getDefaultCertificateName())
-
-            self.data.append(data)
+        self.isDone = False
 
 
-
-    def run(self):
-
-        # The default Face will connect using a Unix socket
+    def run(self, namespace):
+        # Create a connection to the local forwarder over a Unix socket
         face = Face()
 
+        prefix = Name(namespace)
+
         # Use the system default key chain and certificate name to sign commands.
-        face.setCommandSigningInfo(self.keyChain, self.keyChain.getDefaultCertificateName())
+        face.setCommandSigningInfo(self.keyChain, \
+                                   self.keyChain.getDefaultCertificateName())
 
-        # Also use the default certificate name to sign data packets.
-        face.registerPrefix(self.prefix, self.onInterest, self.onRegisterFailed)
+        # Also use the default certificate name to sign Data packets.
+        face.registerPrefix(prefix, self.onInterest, self.onRegisterFailed)
 
-        print "Registering prefix %s" % self.prefix.toUri()
+        print "Registering prefix", prefix.toUri()
 
-        while True:
+        # Run the event loop forever. Use a short sleep to
+        # prevent the Producer from using 100% of the CPU.
+        while not self.isDone:
             face.processEvents()
             time.sleep(0.01)
 
@@ -84,17 +66,23 @@ class Producer(object):
 
     def onInterest(self, prefix, interest, transport, registeredPrefixId):
         interestName = interest.getName()
-        sequence = interestName[-1].toNumber()
 
-        if 0 <= sequence and sequence < len(self.data):
-            transport.send(self.data[sequence].wireEncode().toBuffer())
+        data = Data(interestName)
+        data.setContent("Hello, " + interestName.toUri())
+
+        hourMilliseconds = 3600 * 1000
+        data.getMetaInfo().setFreshnessPeriod(3600 * 1000)
+
+        self.keyChain.sign(data, self.keyChain.getDefaultCertificateName())
+
+        transport.send(data.wireEncode().toBuffer())
 
         print "Replied to: %s" % interestName.toUri()
 
 
     def onRegisterFailed(self, prefix):
         print "Register failed for prefix", prefix.toUri()
-        sys.exit(2)
+        self.isDone = True
 
 
 
@@ -104,15 +92,12 @@ class Producer(object):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Parse command line args for ndn consumer')
     parser.add_argument("-n", "--namespace", required=True, help='namespace to listen under')
-    parser.add_argument("-c", "--count", required=False, help='number of Data packets to generate, default = 1', nargs='?', const=1,  type=int, default=1)
 
     args = parser.parse_args()
 
     try:
         namespace = args.namespace
-        maxCount = args.count
-
-        Producer(namespace, maxCount).run()
+        Producer().run(namespace)
 
     except:
         traceback.print_exc(file=sys.stdout)

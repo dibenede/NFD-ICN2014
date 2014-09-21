@@ -1,5 +1,6 @@
 #!/usr/bin/python
-
+# -*- Mode:python; c-file-style:"gnu"; indent-tabs-mode:nil -*- */
+#
 # Copyright (c) 2013-2014 Regents of the University of California.
 # Copyright (c) 2014 Susmit Shannigrahi, Steve DiBenedetto
 
@@ -23,6 +24,7 @@
 # @author Steve DiBenedetto <http://www.cs.colostate.edu/~dibenede>
 # @author Susmit Shannigrahi <http://www.cs.colostate.edu/~susmit>
 
+
 import sys
 import time
 import argparse
@@ -33,21 +35,25 @@ from pyndn import Name
 from pyndn import Face
 
 
-
 class Consumer(object):
-    '''Hello World consumer'''
+    '''Hello World (extended) consumer'''
 
-    def __init__(self, prefix):
-        self.prefix = prefix
+    def __init__(self, prefix, pipeline):
+        self.prefix = Name(prefix)
+        self.pipeline = pipeline
+        self.nextSegment = 0
         self.outstanding = dict()
         self.isDone = False
 
         self.face = Face("127.0.0.1")
 
 
+
     def run(self):
         try:
-            self._sendNextInterest(self.prefix)
+            while self.nextSegment < self.pipeline:
+                self._sendNextInterest(self.prefix)
+                self.nextSegment += 1
 
             while not self.isDone:
                 self.face.processEvents()
@@ -57,40 +63,51 @@ class Consumer(object):
             print "ERROR: %s" %  e
 
 
-
-    def _onData(self, interest, data):
-        payload = data.getContent()
-        name = data.getName()
-
-        print "Received data: ", payload.toRawStr()
-        del self.outstanding[name.toUri()]
-
-        self.isDone = True
-
-
     def _sendNextInterest(self, name):
+        nameWithSegment = Name(name).appendSegment(self.nextSegment)
+        self._sendNextInterestWithSegment(nameWithSegment)
+
+
+    def _sendNextInterestWithSegment(self, name):
         interest = Interest(name)
         uri = name.toUri()
 
         interest.setInterestLifetimeMilliseconds(4000)
         interest.setMustBeFresh(True)
 
-        if name.toUri() not in self.outstanding:
-            self.outstanding[name.toUri()] = 1
+        if uri not in self.outstanding:
+            self.outstanding[uri] = 1
 
         self.face.expressInterest(interest, self._onData, self._onTimeout)
         print "Sent Interest for %s" % uri
+
+
+    def _onData(self, interest, data):
+        payload = data.getContent()
+        dataName = data.getName()
+
+        print "Received data: ", payload.toRawStr()
+        del self.outstanding[interest.getName().toUri()]
+
+        finalBlockId = data.getMetaInfo().getFinalBlockID()
+
+        if finalBlockId.getValue().size() > 0 and \
+           finalBlockId == dataName[-1]:
+            self.isDone = True
+        else:
+            self._sendNextInterest(self.prefix)
+            self.nextSegment += 1
 
 
     def _onTimeout(self, interest):
         name = interest.getName()
         uri = name.toUri()
 
-        print "TIMEOUT #%d: %s" % (self.outstanding[uri], uri)
+        print "TIMEOUT #%d: segment #%s" % (self.outstanding[uri], name[-1].toNumber())
         self.outstanding[uri] += 1
 
         if self.outstanding[uri] <= 3:
-            self._sendNextInterest(name)
+            self._sendNextInterestWithSegment(name)
         else:
             self.isDone = True
 
@@ -98,13 +115,17 @@ class Consumer(object):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Parse command line args for ndn consumer')
-    parser.add_argument("-u", "--uri", required=True, help='ndn name to retrieve')
+
+    parser.add_argument("-u", "--uri", required=True, help='ndn URI to retrieve')
+    parser.add_argument("-p", "--pipe",required=False, help='number of Interests to pipeline, default = 1', nargs= '?', const=1, type=int, default=1)
 
     args = parser.parse_args()
 
     try:
         uri = args.uri
-        Consumer(Name(uri)).run()
+        pipeline = args.pipe
+
+        Consumer(uri, pipeline).run()
 
     except:
         traceback.print_exc(file=sys.stdout)

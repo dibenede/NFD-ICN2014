@@ -60,12 +60,12 @@ public:
 protected:
 
   bool
-  sendOutInterest(const Interest& interest,
-                  shared_ptr<MyMeasurementInfo>& measurementsEntryInfo,
-                  shared_ptr<pit::Entry>& pitEntry);
+  mySendInterest(const Interest& interest,
+                 shared_ptr<MyMeasurementInfo>& measurementsEntryInfo,
+                 shared_ptr<pit::Entry>& pitEntry);
 
   shared_ptr<MyMeasurementInfo>
-  getOrCreateMyMeasurementInfo(const shared_ptr<fib::Entry>& entry);
+  myGetOrCreateMyMeasurementInfo(const shared_ptr<fib::Entry>& entry);
 
 
 public:

@@ -138,7 +138,9 @@ public:
   typedef WeightedFaceSet::index<ByDelay>::type WeightedFaceSetByDelay;
   typedef WeightedFaceSet::index<ByFaceId>::type WeightedFaceSetByFaceId;
 
+  //Collection of Faces sorted by delay
   WeightedFaceSet weightedFaces;
+
   ndn::time::milliseconds totalDelay;
 };
 
@@ -174,14 +176,14 @@ WeightedLoadBalancerStrategy::afterReceiveInterest(const Face& inFace,
   pitEntry->setStrategyInfo<MyPitInfo>(make_shared<MyPitInfo>());
 
   shared_ptr<MyMeasurementInfo> measurementsEntryInfo =
-           getOrCreateMyMeasurementInfo(fibEntry);
+           myGetOrCreateMyMeasurementInfo(fibEntry);
 
 
   // reconcile differences between incoming nexthops and those stored
   // on our custom measurement entry info
   measurementsEntryInfo->updateStoredNextHops(fibEntry->getNextHops());
 
-  if (!this->sendOutInterest(interest, measurementsEntryInfo, pitEntry))
+  if (!this->mySendInterest(interest, measurementsEntryInfo, pitEntry))
     {
       this->rejectPendingInterest(pitEntry);
       BOOST_ASSERT(false);
@@ -205,8 +207,9 @@ WeightedLoadBalancerStrategy::beforeSatisfyPendingInterest(shared_ptr<pit::Entry
 
   MeasurementsAccessor& accessor = this->getMeasurements();
 
+  // Update Face delay measurements and entry lifetimes owned
+  // by this strategy while walking up the NameTree
   shared_ptr<measurements::Entry> measurementsEntry = accessor.get(*pitEntry);
-
   while (static_cast<bool>(measurementsEntry))
     {
       shared_ptr<MyMeasurementInfo> measurementsEntryInfo =
@@ -215,7 +218,6 @@ WeightedLoadBalancerStrategy::beforeSatisfyPendingInterest(shared_ptr<pit::Entry
       if (static_cast<bool>(measurementsEntryInfo))
         {
           accessor.extendLifetime(measurementsEntry, seconds(16));
-
           measurementsEntryInfo->updateFaceDelay(inFace, delay);
         }
 
@@ -231,9 +233,9 @@ WeightedLoadBalancerStrategy::beforeSatisfyPendingInterest(shared_ptr<pit::Entry
 /////////////////////////////
 
 bool
-WeightedLoadBalancerStrategy::sendOutInterest(const Interest& interest,
-                                              shared_ptr<MyMeasurementInfo>& measurementsEntryInfo,
-                                              shared_ptr<pit::Entry>& pitEntry)
+WeightedLoadBalancerStrategy::mySendInterest(const Interest& interest,
+                                             shared_ptr<MyMeasurementInfo>& measurementsEntryInfo,
+                                             shared_ptr<pit::Entry>& pitEntry)
 {
   typedef MyMeasurementInfo::WeightedFaceSetByDelay WeightedFaceSetByDelay;
 
@@ -269,12 +271,15 @@ WeightedLoadBalancerStrategy::sendOutInterest(const Interest& interest,
 
 
 shared_ptr<MyMeasurementInfo>
-WeightedLoadBalancerStrategy::getOrCreateMyMeasurementInfo(const shared_ptr<fib::Entry>& entry)
+WeightedLoadBalancerStrategy::myGetOrCreateMyMeasurementInfo(const shared_ptr<fib::Entry>& entry)
 {
   BOOST_ASSERT(static_cast<bool>(entry));
 
+  //this could return null?
   shared_ptr<measurements::Entry> measurementsEntry =
     this->getMeasurements().get(*entry);
+
+  BOOST_ASSERT(static_cast<bool>(measurementsEntry));
 
   shared_ptr<MyMeasurementInfo> measurementsEntryInfo =
     measurementsEntry->getStrategyInfo<MyMeasurementInfo>();
