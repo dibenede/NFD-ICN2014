@@ -105,7 +105,7 @@ class Producer(object):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Parse command line args for ndn consumer')
+    parser = argparse.ArgumentParser(description='Parse command line args for ndn producer')
     parser.add_argument("-n", "--namespace", required=True, help='namespace to listen under')
     parser.add_argument("-c", "--count", required=False, help='number of Data packets to generate, default = 1', nargs='?', const=1,  type=int, default=1)
 
