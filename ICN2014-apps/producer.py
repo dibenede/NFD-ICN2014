@@ -91,7 +91,7 @@ class Producer(object):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Parse command line args for ndn consumer')
+    parser = argparse.ArgumentParser(description='Parse command line args for ndn producer')
     parser.add_argument("-n", "--namespace", required=True, help='namespace to listen under')
     parser.add_argument("-d", "--delay", required=False, help='namespace to listen under', nargs= '?', const=1, type=float, default=None)
 
